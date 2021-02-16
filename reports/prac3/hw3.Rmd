@@ -1,0 +1,158 @@
+---
+title: "MAT00058H - Homework 3"
+author: "Matthew Knowles"
+date: "02/02/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+library(MASS, quietly = T)
+library(caret,quietly = T)
+library(naivebayes, quietly = T)
+library(pROC, quietly = T)
+library(ROCR, quietly = T)
+```
+
+## Loading and Overview of the data
+
+```{r}
+  #Training Data
+  crystalData <- read.table("/home/matthew/Documents/University/PDS/Datasets/train1500.txt",header = T)
+  #Test Data
+  testData <- read.table("/home/matthew/Documents/University/PDS/Datasets/test144.txt", header = T)
+  boxplot(crystalData)
+```
+
+We can see from the boxplot of the test data that the first couple of variables massively dominate the analysis. For this reason, we scale the data when performing the PCA.
+
+## PCA
+
+```{r}
+  crysPCA <- prcomp(crystalData,scale=T)
+  biplot(crysPCA, cex= 0.6)
+```
+
+Due to the shear amount of data points, it's hard to make much out in the middle, but that's okay. We can see 3 potential outliers: 520, 755 and 1222. We can remove these with ease and redo the PCA.
+
+```{r}
+  crystalData <- rbind(crystalData[1:519,], crystalData[521:754,], 
+                       crystalData[756:1221,], crystalData[1223:1500,])
+  crysPCA <- prcomp(crystalData, scale=T)
+  biplot(crysPCA, cex=0.6)
+  summary(crysPCA)
+```
+
+We can see from the above graph that this data is now okay to be classified. Further, from the summary, we can see that using 18 prinicpal components will be required for performing LDA, which will be relevant later on.
+
+# Naiive-Bayes with CARET
+
+We implement this in the standard way, but since the 'category' variable is a number we must use *as.factor()* to make this work. 
+
+```{r}
+  crystalData$Category <- as.factor(crystalData$Category)
+  nb = train(Category~., method="naive_bayes", data=crystalData, 
+             trControl=trainControl(method="cv",number=3, savePredictions = T), 
+             preProcess=c("center","scale"))
+  nb$results
+  table(true=nb$pred[,2],predicted=nb$pred[,1])
+```
+
+We can get the accuracy of this table by doing some summing on the table:
+
+```{r}
+sum(diag(prop.table(table(true=nb$pred[,2],predicted=nb$pred[,1]))))
+```
+This is good, but let's change a few parameters and see if it can be improved.
+
+```{r}
+  crystalData$Category <- as.factor(crystalData$Category)
+  nb = train(Category~., method="naive_bayes", data=crystalData, 
+             trControl=trainControl(method="cv",number=3, savePredictions = T), 
+             preProcess=c("center","scale"), tuneGrid=expand.grid(laplace = 0, usekernel=T, adjust=1))
+  nb$results
+  table(true=nb$pred[,2],predicted=nb$pred[,1])
+  sum(diag(prop.table(table(true=nb$pred[,2],predicted=nb$pred[,1]))))
+```
+
+By this time changing some of the variables we have improved the accuracy by 1%!. 
+
+```{r}
+  crystalData$Category <- as.factor(crystalData$Category)
+  nb = train(Category~., method="naive_bayes", data=crystalData, 
+             trControl=trainControl(method="cv",number=3, savePredictions = T), 
+             preProcess=c("center","scale"), tuneGrid=expand.grid(laplace = 1, usekernel=F, adjust=0))
+  nb$results
+  table(true=nb$pred[,2],predicted=nb$pred[,1])
+  sum(diag(prop.table(table(true=nb$pred[,2],predicted=nb$pred[,1]))))
+```
+
+I found through trial and error of these combinations that the accuracy tended to float around 75%, I couldn't get it higher, but this is sill quite good.
+
+# Naiive-Bayes: But Manually
+
+The below code has been ran twice, but only included once, this is because setting *usekernel = T* makes the classifier 2% more accurate.
+
+```{r}
+  mNB = naive_bayes(crystalData[,1:25],crystalData[,26], usekernel = T)
+  predNB <- predict(mNB, testData[,1:25])
+  real_data <- testData[,26]
+  table(true=real_data, predicted=predNB)
+  sum(diag(prop.table(table(true=real_data,predicted=predNB))))
+```
+
+# LDA: with CARET
+
+```{r}
+crystalData$Category <- as.factor(crystalData$Category)
+  nb = train(Category~., method="lda", data=crystalData, 
+             trControl=trainControl(method="cv", number=3,savePredictions = T), 
+             preProcess=c("center","scale"))
+  nb$results
+  table(true=nb$pred[,2],predicted=nb$pred[,1])
+  sum(diag(prop.table(table(true=nb$pred[,2],predicted=nb$pred[,1]))))
+```
+
+We see this gives a slightly improved accuracy, which is nice. But I believe it would be best to do this manually as we can specify the number of principal components to use, and hopefully gain more accuracy.
+
+# LDA: But Manually
+
+Recall earlier we suggested using 18 principal components, so let us now do that in the manual way, instead of with CARET.
+
+```{r}
+  pcaScores <- crysPCA$x[,1:18]
+  crysLDA <- lda(pcaScores, crystalData[,26], CV=T)
+  table(crystalData[,26], crysLDA$class)
+  sum(diag(prop.table(table(crystalData[,26],crysLDA$class))))
+```
+
+So we see this is considerably more accurate. When doing PCA we saw that the data had to be scaled, so it makes sense to check the same here. Given that we already have 96% accuracy, hopefully this will obtain even more accuracy.
+
+```{r}
+  pcaScores <- crysPCA$x[,1:18]
+  crysLDA <- lda(pcaScores, crystalData[,26], CV=T, scale=T)
+  table(crystalData[,26], crysLDA$class)
+  sum(diag(prop.table(table(crystalData[,26],crysLDA$class))))
+```
+
+Unexpectedly, we see that scaling makes no difference at all. 
+
+# ROC Curves and Concluding Remarks
+
+We have trained two classifiers in two different ways. Doing them both manually instead of with the CARET package turned out to give the best reults. Let's look now at the ROC curves for them.
+
+```{r}
+  predictNB <- predict(mNB, testData[,1:25], type = "prob")
+  ratesNB <- prediction(predictNB[,2], testData[,26])
+  perfNB <- performance(ratesNB, "tpr", "fpr")
+  plot(perfNB, col="red", main="ROC Curve for Naiive-Bayes Manual")
+```
+
+```{r}
+  predictLDA <- prediction(crysLDA$posterior[,2], crystalData[,26])
+  performLDA <- performance(predictLDA, "tpr", "fpr")
+  plot(performLDA, col="red", main="ROC Curve for LDA Manual")
+```
+
+From this graph, the LDA's ROC curve 'hugs' the top right corner more, suggesting this is the better classifier to use.
