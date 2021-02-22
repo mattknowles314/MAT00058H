@@ -1,0 +1,55 @@
+---
+title: "MAT00058H - Assignment 3"
+author: "Matthew Knowles"
+date: "22/02/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+## Principal Component Analysis
+
+We begin by loading the data in the standard way. Note how I have chosen to use headers when loading the coffee information file as they column labels are human-readable, whereas the coffee data column headers aren't and would result in extra clutter, so it makes sense just to label them as V1,V2,... etc.
+
+```{r}
+  coffeeData <- read.table("/home/matthew/Documents/University/PDS/Datasets/coffee-origin.txt")
+  coffeeInfo <- read.table("/home/matthew/Documents/University/PDS/Datasets/origin-info.txt", header = T)
+```
+
+Now we move onto the PCA itself.
+
+```{r}
+  coffeePCA <- prcomp(coffeeData, scale =T)
+  biplot(coffeePCA)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

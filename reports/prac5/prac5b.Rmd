@@ -1,0 +1,128 @@
+---
+title: "Practical Data Science with R - Practical 5B"
+author: "Matthew Knowles"
+date: "16/02/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+library(VIM)
+library(nnet)
+library(caret)
+library(DMwR)
+```
+
+## principal Component Analysis and Missing Values
+
+First, let's read in the data, and use a boxplot to aid in the decision of whether or not we should scale the data when performing PCA.
+
+```{r}
+  wine <- read.csv("/home/matthew/Documents/University/PDS/Datasets/winedata.csv", head=F)
+  boxplot(wine)
+```
+
+So it's very clear we do need to scale this. Moving onto the PCA:
+
+```{r, error=T}
+  winePCA <- prcomp(wine[,-1], scale = F)
+```
+
+We can see here that there are some variables that have no values for. On inspection of the full dataset, we can see that variable 8 has a missing value for V5. There are almost certainly more, but this it the first example of what caused the above error. Luckily, we can take a deeper look at the missing values. For this, we can use *aggr*:
+
+
+```{r}
+  aggData <- aggr(wine, plot = T)
+  aggData
+```
+
+Prior to this, we had only identified the 8th variable of V5 as missing, whereas now we can see which variables have a higher proportion of missing values. Further, by looking at the object that *aggr* created, we can see that V9 has the most variables missing, coming in at 5, and our favourite missing value in X5 was the only missing value for that variable- excellent. 
+
+Given that we have 14 variables in our dataset, havin 5 variables with at least 1 missing value isn't actually too worrying- and we can deal with this accordingly.
+
+```{r}
+  wineData <- na.omit(wine)
+  dim(wine)
+  dim(wineData)
+```
+
+The above two dimensions show us that by using *na.omit*, we have lost 10 observations, but that isn't a problem, there's still loads of data we can work with. Speaking of, let's perform that PCA we tried to use earlier.
+
+```{r}
+  winePCA <- prcomp(wineData[,-1], scale=T)
+  biplot(winePCA, cex=0.7)
+```
+
+We already knew to scale the dat, and I'm happy with the result. One could argue observation 115 is an outlier, but I', not going to remove it as it is fine in PC1 and not extreme in PC2. There is a decent spread in PC2, and we can see that no variables appear to be dominating the plot, which is to be expected after scaling.
+
+## Neural Networks
+
+Before we can do anything fancy, we are going to split our data up into test and training sets. I'm going to split at a ratio of 75:25 just out of preferance.
+
+```{r}
+  index = createDataPartition(wineData$V1, p=0.75, list=F)
+  trainData = wineData[index,]
+  testData = wineData[-index,]
+  trainData$V1 <- as.factor(trainData$V1)
+  testData$V1 <- as.factor(testData$V1)
+```
+
+With the logisitics out the way, we can proceed using the *nnet* package. Further the results from this can be summarised using the *confusionMatrix()* function from the *caret* package.
+
+```{r, results='hide'}
+  numFolds =  trainControl(method="cv", number = 10, savePredictions = T)
+  grid = expand.grid(size=10, decay=0.1)
+  nnmodel = train(V1~., data=trainData, method="nnet", preProcess=c("center", "scale"),
+                  trControl=numFolds, tuneGrid=grid)
+```
+
+The output from the above code is quite long, but luckily, we can see a handy summary of it below:
+
+```{r}
+nnmodel$results
+```
+
+So we see we have a very high accuracy which is ideal. We can look at how well the 
+
+```{r}
+  nnpred =  predict(nnmodel, testData[,-1])
+  confusionMatrix(as.factor(nnpred), testData$V1)
+```
+
+It is clear from the above two results that the accuracy for training and data is superb. Note that I chose to run the *nnet* through Caret instead of on it's own, as it meant I could scale the data automatically and didn't have to mess around with things like *cbind()* and *rbind()*.
+
+## KNN
+
+Recall we had previously omitted the values which were NA. We now use the *k-nearest neihbours approach*, by running the following:
+
+```{r}
+  wineKNN <- knnImputation(wine)
+```
+
+Note that the dimensions for this new dataset are exactly the same as that of the original. This is because the *knnimputation* function fills in each of these values by using the k-nearest-neighbours algorithm to find approximate values. We can now essentially just repeat exactly what we did earlier.
+
+```{r, results='hide'}
+  index = createDataPartition(wineKNN$V1, p=0.75, list=F)
+  trainData = wineKNN[index,]
+  testData = wineKNN[-index,]
+  trainData$V1 <- as.factor(trainData$V1)
+  testData$V1 <- as.factor(testData$V1)
+  numFolds =  trainControl(method="cv", number = 10, savePredictions = T)
+  grid = expand.grid(size=10, decay=0.1)
+  nnmodel = train(V1~., data=trainData, method="nnet", preProcess=c("center", "scale"),
+                  trControl=numFolds, tuneGrid=grid)
+```
+
+And finally, the confusion matrix:
+
+```{r}
+  nnpred =  predict(nnmodel, testData[,-1])
+  confusionMatrix(as.factor(nnpred), testData$V1)
+```
+
+So infact this is't all that much more accurate, but I would argue this isn't the better approach to take, using algorithms to approximate values for things isn't always going to work, so its best to just get rid of NA values and test on data you know is 100% accurate. Especially as it (certainly in this case) has only sacrificed ~1% of accuracy.
+
+
+
+
